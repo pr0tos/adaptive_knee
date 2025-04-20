@@ -1,0 +1,3 @@
+[submodule "myosuite"]
+	path = myosuite
+	url = git@github.com:MyoHub/myosuite.git
