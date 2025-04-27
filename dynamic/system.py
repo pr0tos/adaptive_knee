@@ -18,16 +18,16 @@ class MotionSystem:
     def system_equations(self, t: float, y: np.ndarray) -> List[float]:
         q2, d_q2 = y  # Распаковываем переменные
 
-        # Получаем q1 и его производную из известных функций
+        # Получаем q1 и его производные, преобразуем в радианы
         q1 = np.deg2rad(self.q1_func(t))
-        d_q1 = self.d_q1_func(t)
-        dd_q1 = self.dd_q1_func(t)
+        d_q1 = np.deg2rad(self.d_q1_func(t))
+        dd_q1 = np.deg2rad(self.dd_q1_func(t)) 
         
         # Расчет управляющего воздействия
         c = (self.params.r * np.cos(d_q2) + 
-            np.sqrt(2 * self.params.r**2 * np.sin(d_q2)**2 - self.params.d**2 + 
-            self.params.d * self.params.r * np.cos(d_q2) - self.params.r**2 + self.params.L**2))
-        Q2 = -c**2 * d_q2
+             np.sqrt(2 * self.params.r**2 * np.sin(d_q2)**2 - self.params.d**2 + 
+                     self.params.d * self.params.r * np.cos(d_q2) - self.params.r**2 + self.params.L**2))
+        Q2 = c * d_q2  # Добавлен коэффициент для размерности
         
         # Уравнения для угловых ускорений
         A22 = self.params.I2 + self.params.m2 * self.params.r2**2

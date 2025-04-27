@@ -8,7 +8,7 @@ class Visualizer:
                      q2: np.ndarray, d_q2: np.ndarray):
         # Вычисляем q1 и d_q1 для графиков
         q1 = np.deg2rad(q1_func(t))
-        d_q1 = d_q1_func(t)
+        d_q1 = np.deg2rad(d_q1_func(t))
 
         plt.figure(figsize=(12, 8))
 
