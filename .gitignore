@@ -1,3 +1,5 @@
 __pycache__
 module_scheme.pdf
 scheme.pdf
+MUJOCO_LOG.TXT
+wandb
