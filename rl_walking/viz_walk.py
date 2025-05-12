@@ -1,5 +1,5 @@
 import torch
-from sac import SAC
+from agents.sac import SAC
 from myosuite.utils import gym
 import numpy as np
 
