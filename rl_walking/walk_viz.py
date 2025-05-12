@@ -4,7 +4,7 @@ from myosuite.utils import gym
 import numpy as np
 
 # Initialize environment
-env = gym.make('myoLegWalk-v0')
+env = gym.make('myoLegWalk-v0', normalize_act=False)    
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 
@@ -43,11 +43,11 @@ for _ in range(episode_n):
         # Render environment
         env.unwrapped.mj_render()
         
-        if done:
-            print(f"Episode terminated after {t+1} steps with total reward: {total_reward:.2f}")
-            state, _ = env.reset()
-            total_reward = 0
-            break
+        # if done:
+        #     print(f"Episode terminated after {t+1} steps with total reward: {total_reward:.2f}")
+        #     state, _ = env.reset()
+        #     total_reward = 0
+        #     break
 
     env.close()
 print("Visualization completed")

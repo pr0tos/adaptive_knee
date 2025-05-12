@@ -1,7 +1,7 @@
 from scipy.interpolate import CubicSpline
 from system_par import SystemParameters
 import numpy as np
-from typing import List
+from typing import List 
 
 
 class MotionSystem:
@@ -27,7 +27,7 @@ class MotionSystem:
         c = (self.params.r * np.cos(d_q2) + 
              np.sqrt(2 * self.params.r**2 * np.sin(d_q2)**2 - self.params.d**2 + 
                      self.params.d * self.params.r * np.cos(d_q2) - self.params.r**2 + self.params.L**2))
-        Q2 = c * d_q2  # Добавлен коэффициент для размерности
+        Q2 = - c*2 * d_q2  
         
         # Уравнения для угловых ускорений
         A22 = self.params.I2 + self.params.m2 * self.params.r2**2
