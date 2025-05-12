@@ -7,31 +7,58 @@ import numpy as np
 from collections import deque
 import wandb
 
+class Normalizer:
+    def __init__(self):
+        self.mean = 0.0
+        self.std = 1.0
+        self.mean_diff = 0.0
+        self.var = 1.0
+        self.count = 0
+        self.epsilon = 1e-6
+
+    def update(self, x):
+        self.count += 1
+        delta = x - self.mean
+        self.mean += delta / self.count
+        delta2 = x - self.mean
+        self.mean_diff += delta * delta2
+        self.var = self.mean_diff / max(1, self.count - 1)
+        self.std = np.sqrt(self.var + self.epsilon)
+
+    def normalize(self, x):
+        normalized = (x - self.mean) / (self.std + self.epsilon)
+        return np.clip(normalized, -5.0, 5.0)
+
 class SAC(nn.Module):
-    def __init__(self, state_dim, action_dim, gamma=0.99, alpha=0.2, tau=1e-2,
-                 batch_size=256, pi_lr=3e-4, q_lr=3e-4):
+    def __init__(self, state_dim, action_dim, gamma=0.99, alpha=0.1, tau=1e-2, hidden_layer=256,
+                 batch_size=256, pi_lr=1e-4, q_lr=1e-4):
         super().__init__()
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {self.device}")
+
+        # Normalizers for states and rewards
+        self.state_normalizer = Normalizer()
+        self.reward_normalizer = Normalizer()
 
         # Policy Network
         self.pi_model = nn.Sequential(
-            nn.Linear(state_dim, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 2 * action_dim)
+            nn.Linear(state_dim, hidden_layer), nn.ReLU(),
+            nn.Linear(hidden_layer, hidden_layer), nn.ReLU(),
+            nn.Linear(hidden_layer, 2 * action_dim)
         ).to(self.device)
 
         # Q Networks
         self.q1_model = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1)
+            nn.Linear(state_dim + action_dim, hidden_layer), nn.ReLU(),
+            nn.Linear(hidden_layer, hidden_layer), nn.ReLU(),
+            nn.Linear(hidden_layer, 1)
         ).to(self.device)
 
         self.q2_model = nn.Sequential(
-            nn.Linear(state_dim + action_dim, 128), nn.ReLU(),
-            nn.Linear(128, 128), nn.ReLU(),
-            nn.Linear(128, 1)
+            nn.Linear(state_dim + action_dim, hidden_layer), nn.ReLU(),
+            nn.Linear(hidden_layer, hidden_layer), nn.ReLU(),
+            nn.Linear(hidden_layer, 1)
         ).to(self.device)
 
         # Target Networks
@@ -40,24 +67,40 @@ class SAC(nn.Module):
 
         # Other parameters
         self.gamma = gamma
-        self.alpha = alpha
+        self.target_entropy = -float(action_dim)  # Target entropy for alpha tuning
+        self.log_alpha = torch.tensor(np.log(alpha), requires_grad=True, device=self.device)
+        self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=pi_lr)
         self.tau = tau
         self.batch_size = batch_size
-        self.memory = deque(maxlen=100000)  # Fixed-size replay buffer
+        self.memory = deque(maxlen=300000)  # Increased replay buffer size
 
         # Optimizers
         self.pi_optimizer = torch.optim.Adam(self.pi_model.parameters(), lr=pi_lr)
         self.q1_optimizer = torch.optim.Adam(self.q1_model.parameters(), lr=q_lr)
         self.q2_optimizer = torch.optim.Adam(self.q2_model.parameters(), lr=q_lr)
 
-    def get_action(self, state):
-        state = torch.FloatTensor(state).unsqueeze(0).to(self.device)
-        with torch.no_grad():
-            action, _ = self.predict_actions(state)
-        return (action.detach().cpu().numpy().flatten() + 1) / 2
+    @property
+    def alpha(self):
+        return self.log_alpha.exp()
 
-    def fit(self, state, action, reward, done, next_state):
-        self.memory.append([state, action, reward, done, next_state])
+    def get_action(self, state):
+        self.state_normalizer.update(state)
+        normalized_state = self.state_normalizer.normalize(state)
+        state_tensor = torch.FloatTensor(normalized_state).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            action, _ = self.predict_actions(state_tensor)
+        return action.detach().cpu().numpy().flatten()
+
+    def fit(self, state, action, reward, done, next_state, use_wandb=False):
+        # Normalize state, reward, and next_state
+        self.state_normalizer.update(state)
+        normalized_state = self.state_normalizer.normalize(state)
+        self.reward_normalizer.update(reward)
+        normalized_reward = self.reward_normalizer.normalize(reward)
+        self.state_normalizer.update(next_state)
+        normalized_next_state = self.state_normalizer.normalize(next_state)
+
+        self.memory.append([normalized_state, action, normalized_reward, done, normalized_next_state])
 
         if len(self.memory) < self.batch_size:
             return
@@ -101,16 +144,25 @@ class SAC(nn.Module):
 
         self.update_model(pi_loss, self.pi_optimizer)
 
-        # Log losses to WandB
-        wandb.log({
-            "q1_loss": q1_loss.item(),
-            "q2_loss": q2_loss.item(),
-            "pi_loss": pi_loss.item()
-        })
+        # Train alpha (entropy regularization)
+        alpha_loss = -torch.mean(self.alpha * (log_probs.detach() + self.target_entropy))
+        self.update_model(alpha_loss, self.alpha_optimizer)
+
+        # Log losses to WandB if enabled
+        if use_wandb:
+            wandb.log({
+                "q1_loss": q1_loss.item(),
+                "q2_loss": q2_loss.item(),
+                "pi_loss": pi_loss.item(),
+                "alpha": self.alpha.item()
+            })
 
     def update_model(self, loss, optimizer, model=None, target_model=None):
         optimizer.zero_grad()
         loss.backward()
+        # Gradient clipping to prevent exploding gradients
+        if model is not None:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
         optimizer.step()
 
         # Soft update for target networks
@@ -125,7 +177,7 @@ class SAC(nn.Module):
         outputs = self.pi_model(states)
         means, log_stds = torch.chunk(outputs, 2, dim=-1)
 
-        log_stds = torch.clamp(log_stds, -20, 2)
+        log_stds = torch.clamp(log_stds, -10, 2)
         stds = torch.exp(log_stds)
 
         dists = Normal(means, stds)
@@ -142,6 +194,7 @@ class SAC(nn.Module):
             'pi_model_state_dict': self.pi_model.state_dict(),
             'q1_model_state_dict': self.q1_model.state_dict(),
             'q2_model_state_dict': self.q2_model.state_dict(),
+            'log_alpha': self.log_alpha,
         }, path)
 
     def load_model(self, path):
@@ -149,6 +202,7 @@ class SAC(nn.Module):
         self.pi_model.load_state_dict(checkpoint['pi_model_state_dict'])
         self.q1_model.load_state_dict(checkpoint['q1_model_state_dict'])
         self.q2_model.load_state_dict(checkpoint['q2_model_state_dict'])
+        self.log_alpha = checkpoint['log_alpha']
         self.pi_model.eval()
         self.q1_model.eval()
         self.q2_model.eval()

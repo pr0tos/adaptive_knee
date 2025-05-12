@@ -4,7 +4,7 @@ from myosuite.utils import gym
 import numpy as np
 
 # Initialize environment
-env = gym.make('myoLegWalk-v0')
+env = gym.make('myoLegWalk-v0', normalize_act=False)    
 state_dim = env.observation_space.shape[0]
 action_dim = env.action_space.shape[0]
 
