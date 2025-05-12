@@ -1,7 +1,7 @@
 from scipy.interpolate import CubicSpline
 from system_par import SystemParameters
 import numpy as np
-from typing import List
+from typing import List 
 
 
 class MotionSystem:
