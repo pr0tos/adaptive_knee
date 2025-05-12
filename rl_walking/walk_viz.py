@@ -43,11 +43,11 @@ for _ in range(episode_n):
         # Render environment
         env.unwrapped.mj_render()
         
-        if done:
-            print(f"Episode terminated after {t+1} steps with total reward: {total_reward:.2f}")
-            state, _ = env.reset()
-            total_reward = 0
-            break
+        # if done:
+        #     print(f"Episode terminated after {t+1} steps with total reward: {total_reward:.2f}")
+        #     state, _ = env.reset()
+        #     total_reward = 0
+        #     break
 
     env.close()
 print("Visualization completed")

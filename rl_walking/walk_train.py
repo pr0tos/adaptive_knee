@@ -6,14 +6,6 @@ import matplotlib.pyplot as plt
 import os
 import argparse
 
-def custom_reward(state, action, next_state, reward):
-    # Пример кастомного вознаграждения: бонус за движение вперёд
-    # Индекс для скорости вперёд нужно определить из документации myoLegWalk-v0
-    forward_velocity_idx = 0  # Замените на реальный индекс
-    forward_velocity = next_state[forward_velocity_idx] if forward_velocity_idx < len(next_state) else 0.0
-    bonus = 0.1 * max(0, forward_velocity)
-    return reward + bonus
-
 def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use_wandb=False):
     """
     Обучает агента в заданной среде.
@@ -53,18 +45,16 @@ def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use
             scaled_action = (action + 1) / 2
             next_state, reward, done, _, _ = env.step(scaled_action)
 
-            # Apply custom reward
-            reward = custom_reward(state, action, next_state, reward)
-        
             agent.fit(state, action, reward, done, next_state, use_wandb=use_wandb)
         
             total_reward += reward
             state = next_state
             
             # Rendering for debugging
-            env.unwrapped.mj_render()
+            # env.unwrapped.mj_render()
             
-            if done and episode > 5000:
+            if done and episode > 3000:
+            # if done: 
                 break
         
         total_rewards.append(total_reward)
