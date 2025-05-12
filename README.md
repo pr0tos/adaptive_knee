@@ -14,6 +14,8 @@ conda env create -f environment.yml
 
 # Activate environment
 conda activate knee
+#install requirements
+pip install -r requirements.txt
 
 cd rl_walking
 ```
