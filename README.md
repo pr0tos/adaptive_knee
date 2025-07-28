@@ -1,6 +1,7 @@
 # Adaptive Knee Dynamics Simulation
 
 ## Project Setup
+![image](https://github.com/pr0tos/adaptive_knee/blob/dynamic/dynamic/data/photo_2024-11-29_12-33-29.jpg)
 
 ### 1.  Create and Activate Conda Environment
 
