@@ -7,12 +7,10 @@ import numpy as np
 from collections import deque
 import wandb
 
-class Normalizer:
-    def __init__(self):
-        self.mean = 0.0
-        self.std = 1.0
-        self.mean_diff = 0.0
-        self.var = 1.0
+class MultiDimNormalizer:
+    def __init__(self, dim):
+        self.mean = np.zeros(dim)
+        self.std = np.ones(dim)
         self.count = 0
         self.epsilon = 1e-6
 
@@ -21,13 +19,25 @@ class Normalizer:
         delta = x - self.mean
         self.mean += delta / self.count
         delta2 = x - self.mean
-        self.mean_diff += delta * delta2
-        self.var = self.mean_diff / max(1, self.count - 1)
-        self.std = np.sqrt(self.var + self.epsilon)
+        self.std = np.sqrt(np.mean(delta * delta2, axis=0) + self.epsilon)
 
     def normalize(self, x):
-        normalized = (x - self.mean) / (self.std + self.epsilon)
-        return np.clip(normalized, -5.0, 5.0)
+        return np.clip((x - self.mean) / (self.std + self.epsilon), -5.0, 5.0)
+
+class RewardNormalizer:
+    def __init__(self, window=100):
+        self.mean = 0.0
+        self.std = 1.0
+        self.buffer = deque(maxlen=window)
+        self.epsilon = 1e-6
+
+    def update(self, x):
+        self.buffer.append(x)
+        self.mean = np.mean(self.buffer)
+        self.std = np.std(self.buffer) + self.epsilon
+
+    def normalize(self, x):
+        return np.clip((x - self.mean) / (self.std + self.epsilon), -2.0, 2.0)
 
 class SAC(nn.Module):
     def __init__(self, state_dim, action_dim, gamma=0.99, alpha=0.1, tau=1e-2, hidden_layer=256,
@@ -38,8 +48,8 @@ class SAC(nn.Module):
         print(f"Using device: {self.device}")
 
         # Normalizers for states and rewards
-        self.state_normalizer = Normalizer()
-        self.reward_normalizer = Normalizer()
+        self.state_normalizer = MultiDimNormalizer(state_dim)
+        self.reward_normalizer = RewardNormalizer()
 
         # Policy Network
         self.pi_model = nn.Sequential(
@@ -67,12 +77,12 @@ class SAC(nn.Module):
 
         # Other parameters
         self.gamma = gamma
-        self.target_entropy = -float(action_dim)  # Target entropy for alpha tuning
+        self.target_entropy = -0.2 * float(action_dim)  # Adjusted target entropy for more exploration
         self.log_alpha = torch.tensor(np.log(alpha), requires_grad=True, device=self.device)
         self.alpha_optimizer = torch.optim.Adam([self.log_alpha], lr=pi_lr)
         self.tau = tau
         self.batch_size = batch_size
-        self.memory = deque(maxlen=300000)  # Increased replay buffer size
+        self.memory = deque(maxlen=500000)  # Increased replay buffer size
 
         # Optimizers
         self.pi_optimizer = torch.optim.Adam(self.pi_model.parameters(), lr=pi_lr)
@@ -195,14 +205,25 @@ class SAC(nn.Module):
             'q1_model_state_dict': self.q1_model.state_dict(),
             'q2_model_state_dict': self.q2_model.state_dict(),
             'log_alpha': self.log_alpha,
+            'state_normalizer_mean': self.state_normalizer.mean,
+            'state_normalizer_std': self.state_normalizer.std,
+            'reward_normalizer_mean': self.reward_normalizer.mean,
+            'reward_normalizer_std': self.reward_normalizer.std,
         }, path)
 
     def load_model(self, path):
-        checkpoint = torch.load(path, map_location=self.device, weights_only=True)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.pi_model.load_state_dict(checkpoint['pi_model_state_dict'])
         self.q1_model.load_state_dict(checkpoint['q1_model_state_dict'])
         self.q2_model.load_state_dict(checkpoint['q2_model_state_dict'])
         self.log_alpha = checkpoint['log_alpha']
+        
+        # Handle missing normalization stats (for backward compatibility)
+        self.state_normalizer.mean = checkpoint.get('state_normalizer_mean', self.state_normalizer.mean)
+        self.state_normalizer.std = checkpoint.get('state_normalizer_std', self.state_normalizer.std)
+        self.reward_normalizer.mean = checkpoint.get('reward_normalizer_mean', self.reward_normalizer.mean)
+        self.reward_normalizer.std = checkpoint.get('reward_normalizer_std', self.reward_normalizer.std)
+
         self.pi_model.eval()
         self.q1_model.eval()
         self.q2_model.eval()

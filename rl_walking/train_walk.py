@@ -1,10 +1,11 @@
 import wandb
-from sac import SAC
+from agents.sac import SAC
 from myosuite.utils import gym
 import numpy as np
 import matplotlib.pyplot as plt
 import os
 import argparse
+from datetime import datetime
 
 def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use_wandb=False):
     """
@@ -24,6 +25,7 @@ def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use
     total_rewards = []
     running_reward = []
     best_avg_reward = -float('inf')
+    global_step = 0  # Глобальный счётчик шагов
 
     # Ensure the models directory exists
     os.makedirs("rl_walking/models", exist_ok=True)
@@ -50,11 +52,9 @@ def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use
             total_reward += reward
             state = next_state
             
-            # Rendering for debugging
-            # env.unwrapped.mj_render()
+            global_step += 1
             
-            if done and episode > 3000:
-            # if done: 
+            if done and episode > 1000:  # Allow exploration for first 50 episodes
                 break
         
         total_rewards.append(total_reward)
@@ -71,7 +71,8 @@ def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use
                 "episode": episode,
                 "total_reward": total_reward,
                 "avg_reward": avg_reward,
-                "steps_per_episode": t + 1  # Log steps per episode
+                "steps_per_episode": t + 1,
+                "alpha": agent.alpha.item()  # Log alpha
             })
         
         # Save model if average reward improves
@@ -80,7 +81,9 @@ def train(agent, env, episode_n=20000, max_steps=1000, load_model_path=None, use
             agent.save_model("rl_walking/models/sac_policy.pth")
             print(f"Episode {episode}: Saved model with avg_reward = {avg_reward:.2f}")
         
-        print(f'Episode {episode}: Total Reward = {total_reward}')
+        # Printing every 100 episodes
+        if episode % 100 == 0 or episode == 0:
+            print(f'Episode {episode}: Total Reward = {total_reward:.2f}, Avg Reward = {avg_reward:.2f}, Steps = {t + 1}')
 
     return total_rewards
 
@@ -90,18 +93,25 @@ def main():
     parser.add_argument('--use_wandb', action='store_true', help='Enable WandB logging')
     args = parser.parse_args()
 
+    # Get current date and time for run name (format: YYYY-MM-DD_HH-MM)
+    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M")
+
     # Initialize WandB if enabled
     if args.use_wandb:
-        wandb.init(project="myoLegWalk-training", config={
-            "episode_n": 20000,
-            "max_steps": 1000,
-            "gamma": 0.99,
-            "alpha": 0.1,
-            "tau": 0.005,
-            "batch_size": 256,
-            "pi_lr": 1e-4,
-            "q_lr": 1e-4
-        })
+        wandb.init(
+            project="myoLegWalk-training",
+            name=f"train_{current_time}",  # Name with date and time
+            config={
+                "episode_n": 20000,
+                "max_steps": 1000,
+                "gamma": 0.99,
+                "alpha": 0.7,
+                "tau": 0.005,
+                "batch_size": 256,
+                "pi_lr": 5e-5,
+                "q_lr": 5e-5
+            }
+        )
     else:
         print("WandB logging disabled.")
 
@@ -109,20 +119,20 @@ def main():
     env = gym.make('myoLegWalk-v0', normalize_act=False)
     print(f'Environment name: {env.unwrapped.spec.id}')
     state_dim = env.observation_space.shape[0]
-    print(f'Observation space: {env.observation_space.shape[0]}')
+    print(f'Observation space: {state_dim}')
     action_dim = env.action_space.shape[0]
-    print(f'Action space: {env.action_space.shape[0]}')
+    print(f'Action space: {action_dim}')
 
     # Initialize SAC agent
     agent = SAC(
         state_dim=state_dim,
         action_dim=action_dim,
         gamma=0.99,
-        alpha=0.1,
+        alpha=0.7,
         tau=0.005,
         batch_size=256,
-        pi_lr=1e-4,
-        q_lr=1e-4
+        pi_lr=5e-5,
+        q_lr=5e-5
     )
 
     # Train the agent with option to load a pre-trained model
